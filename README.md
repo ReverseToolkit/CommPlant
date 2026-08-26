@@ -1,14 +1,14 @@
-# LSPlant
+# CommPlant
 
 ![](https://img.shields.io/badge/license-LGPL--3.0-orange.svg)
 ![](https://img.shields.io/badge/Android-5.0%20--%2017-blue.svg)
 ![](https://img.shields.io/badge/arch-armeabi--v7a%20%7C%20arm64--v8a%20%7C%20x86%20%7C%20x86--64%20%7C%20riscv64-brightgreen.svg)
-![](https://github.com/LSPosed/LSPlant/actions/workflows/build.yml/badge.svg?branch=master&event=push)
-![](https://img.shields.io/maven-central/v/org.lsposed.lsplant/lsplant.svg)
+![](https://github.com/LSPosed/CommPlant/actions/workflows/build.yml/badge.svg?branch=master&event=push)
+![](https://img.shields.io/maven-central/v/org.commplant/commplant.svg)
 
-LSPlant is an Android ART hook library, providing Java method hook/unhook and inline deoptimization.
+CommPlant is an Android ART hook library, providing Java method hook/unhook and inline deoptimization.
 
-This project is part of LSPosed framework under GNU Lesser General Public License.
+This project is part of CommPosed framework under GNU Lesser General Public License.
 
 ## Features
 
@@ -18,7 +18,7 @@ This project is part of LSPosed framework under GNU Lesser General Public Licens
 
 ## Documentation
 
-https://lsposed.org/LSPlant/namespacelsplant.html
+https://lsposed.org/CommPlant/namespacecommplant.html
 
 ## Quick Start
 
@@ -34,21 +34,21 @@ android {
 }
 
 dependencies {
-    implementation "org.lsposed.lsplant:lsplant:+"
+    implementation "org.commplant:commplant:+"
 }
 ```
 
-If you don't want to include `libc++_shared.so` in your APK, you can use `lsplant-standalone` instead:
+If you don't want to include `libc++_shared.so` in your APK, you can use `commplant-standalone` instead:
 
 ```gradle
 dependencies {
-    implementation "org.lsposed.lsplant:lsplant-standalone:+"
+    implementation "org.commplant:commplant-standalone:+"
 }
 ```
 
-### 1. Init LSPlant within JNI_OnLoad
+### 1. Init CommPlant within JNI_OnLoad
 
-Initialize LSPlant for the proceeding hook. It mainly prefetch needed symbols and hook some functions.
+Initialize CommPlant for the proceeding hook. It mainly prefetch needed symbols and hook some functions.
 
 + `env` is the Java environment.
 
@@ -61,7 +61,7 @@ bool Init(JNIEnv *env,
           const InitInfo &info);
 ```
 
-Returns whether initialization succeed. Behavior is undefined if calling other LSPlant interfaces before initialization or after a fail initialization.
+Returns whether initialization succeed. Behavior is undefined if calling other CommPlant interfaces before initialization or after a fail initialization.
 
 ### 2. Hook
 
@@ -96,7 +96,7 @@ This function thread safe (you can call it simultaneously from multiple thread) 
 
 ### 3. Check
 
-Check if a Java function is hooked by LSPlant or not.
+Check if a Java function is hooked by CommPlant or not.
 
 ```c++
 bool IsHooked(JNIEnv *env,

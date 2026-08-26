@@ -28,7 +28,7 @@ jobs:
       - name: Build with Gradle
         run: |
           rm -rf $ANDROID_HOME/cmake
-          ./gradlew :lsplant:publish
+          ./gradlew :commplant:publish
         env:
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.maven_pgp_signingKey }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.maven_pgp_signingPassword }}

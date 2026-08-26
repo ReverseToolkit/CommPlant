@@ -4,7 +4,7 @@
 #include <string_view>
 #include "logging.h"
 
-import lsplant;
+import commplant;
 import lsparself;
 
 #define _uintval(p)               reinterpret_cast<uintptr_t>(p)
@@ -36,20 +36,20 @@ bool InlineUnhooker(void* func) {
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_org_lsposed_lsplant_LSPTest_initHooker(JNIEnv*, jclass) {
+Java_org_commplant_LSPTest_initHooker(JNIEnv*, jclass) {
     return init_result;
 }
 
 extern "C"
 JNIEXPORT jobject JNICALL
-Java_org_lsposed_lsplant_Hooker_doHook(JNIEnv* env, jobject thiz, jobject target, jobject callback) {
-    return lsplant::Hook(env, target, thiz, callback);
+Java_org_commplant_Hooker_doHook(JNIEnv* env, jobject thiz, jobject target, jobject callback) {
+    return commplant::Hook(env, target, thiz, callback);
 }
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_org_lsposed_lsplant_Hooker_doUnhook(JNIEnv* env, jobject, jobject target) {
-    return lsplant::UnHook(env, target);
+Java_org_commplant_Hooker_doUnhook(JNIEnv* env, jobject, jobject target) {
+    return commplant::UnHook(env, target);
 }
 
 JNIEXPORT jint JNICALL
@@ -59,7 +59,7 @@ JNI_OnLoad(JavaVM* vm, void* reserved) {
         return JNI_ERR;
     }
     lsparself::Elf art("/libart.so");
-    lsplant::InitInfo initInfo{
+    commplant::InitInfo initInfo{
             .inline_hooker = InlineHooker,
             .inline_unhooker = InlineUnhooker,
             .art_symbol_resolver = [&art](std::string_view symbol) -> void* {
@@ -69,6 +69,6 @@ JNI_OnLoad(JavaVM* vm, void* reserved) {
                 return art.getSymbPrefixFirstAddress(symbol);
             },
     };
-    init_result = lsplant::Init(env, initInfo);
+    init_result = commplant::Init(env, initInfo);
     return JNI_VERSION_1_6;
 }

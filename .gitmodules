@@ -1,5 +1,5 @@
 [submodule "dex_builder"]
-	path = lsplant/src/main/jni/external/dex_builder
+	path = commplant/src/main/jni/external/dex_builder
 	url = https://github.com/JingMatrix/DexBuilder.git
 	branch = master
 [submodule "docs/doxygen-awesome-css"]

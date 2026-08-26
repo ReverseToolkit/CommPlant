@@ -12,7 +12,7 @@ val androidNdkVersion: String by rootProject.extra
 val androidCmakeVersion: String by rootProject.extra
 
 android {
-    namespace = "org.lsposed.lsplant.test"
+    namespace = "org.commplant.test"
     compileSdk = androidCompileSdkVersion
     ndkVersion = androidNdkVersion
     buildToolsVersion = androidBuildToolsVersion
@@ -23,7 +23,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "org.lsposed.lsplant"
+        applicationId = "org.commplant"
         minSdk = androidMinSdkVersion
         targetSdk = androidTargetSdkVersion
         versionCode = 1
@@ -95,7 +95,7 @@ android {
 }
 
 dependencies {
-    implementation(project(":lsplant"))
+    implementation(project(":commplant"))
     implementation(libs.dobby)
 
     androidTestImplementation(libs.test.ext.junit)

@@ -51,7 +51,7 @@ jobs:
           ccache -o compiler_check='%compiler% -dumpmachine; %compiler% -dumpversion'
           ccache -p
           echo 'android.native.buildOutput=verbose' >> gradle.properties
-          ./gradlew :lsplant:publishToMavenLocal :lsplant:prefabDebugPackage
+          ./gradlew :commplant:publishToMavenLocal :commplant:prefabDebugPackage
           ./gradlew --stop
         env:
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.maven_pgp_signingKey }}

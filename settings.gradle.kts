@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "LSPlant"
-include(":lsplant")
+rootProject.name = "CommPlant"
+include(":commplant")
