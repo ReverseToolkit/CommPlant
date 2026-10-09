@@ -1,10 +1,13 @@
 module;
 
+#include <jni.h>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "logging.hpp"
+#include "prot_hide.hpp"
 
 export module commplant:dex_file;
 
@@ -100,6 +103,24 @@ public:
         if (!DexFile_setTrusted_) return false;
         DexFile_setTrusted_(env, nullptr, cookie);
         return true;
+    }
+
+    static bool HideCookie(JNIEnv* env, jobject cookie) {
+        if (!cookie) return false;
+        auto long_array = JNI_FindClass(env, "[J");
+        if (!long_array || !JNI_IsInstanceOf(env, cookie, long_array)) return false;
+        auto arr = static_cast<jlongArray>(cookie);
+        const jsize n = env->GetArrayLength(arr);
+        if (n <= 0) return false;
+        jlong* els = env->GetLongArrayElements(arr, nullptr);
+        if (!els) return false;
+        bool any = false;
+        for (jsize i = 0; i < n; ++i) {
+            if (els[i] == 0) continue;
+            any |= prot_hide::HideArtDexFile(reinterpret_cast<const void*>(static_cast<uintptr_t>(els[i])));
+        }
+        env->ReleaseLongArrayElements(arr, els, JNI_ABORT);
+        return any;
     }
 
     static bool Init(JNIEnv* env, const HookHandler& handler) {

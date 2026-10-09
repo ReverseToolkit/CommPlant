@@ -198,5 +198,19 @@ struct InitInfo {
 /// \return Indicate whether the operation has succeed.
 [[nodiscard, maybe_unused, gnu::visibility("default")]] bool MakeDexFileTrusted(JNIEnv *env,
                                                                                 jobject cookie);
+
+/// \brief mmap with PROT_HIDE. Stock kernels reject the bit with EINVAL/ENOSYS
+/// and this retries without it.
+[[nodiscard, maybe_unused, gnu::visibility("default")]] void *MmapHidden(void *addr, size_t length,
+                                                                         int prot, int flags, int fd,
+                                                                         long offset);
+
+/// \brief Hide the VMAs backing an ART DexFile cookie (`mCookie` long[]).
+[[nodiscard, maybe_unused, gnu::visibility("default")]] bool HideDexFile(JNIEnv *env,
+                                                                         jobject cookie);
+
+/// \brief Walk a ClassLoader's DexPathList and hide every DexFile VMA.
+[[nodiscard, maybe_unused, gnu::visibility("default")]] bool HideClassLoaderDex(JNIEnv *env,
+                                                                                jobject class_loader);
 }  // namespace v2
 }  // namespace commplant

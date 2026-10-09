@@ -6,7 +6,9 @@ module;
 #include <jni.h>
 #include <linux/ashmem.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/system_properties.h>
+#include <sys/uio.h>
 #include <sys/utsname.h>
 #include <syscall.h>
 #include <unistd.h>
@@ -21,6 +23,15 @@ module;
 #include <utility>
 
 #include "logging.hpp"
+#include "prot_hide.hpp"
+
+#ifndef PROT_HIDE
+#define PROT_HIDE 0x40
+#endif
+
+#ifndef PR_WRITE_PROCESS
+#define PR_WRITE_PROCESS 0xddee11cc
+#endif
 
 module commplant;
 
@@ -60,6 +71,8 @@ using namespace std::string_literals;
 using namespace std::string_view_literals;
 
 namespace {
+
+bool WriteProcessMemory(void *dest, const void *src, size_t len);
 template <typename T, T... chars>
 inline consteval auto operator""_uarr() {
     return std::array<uint8_t, sizeof...(chars)>{static_cast<uint8_t>(chars)...};
@@ -439,18 +452,30 @@ std::tuple<jclass, jfieldID, jmethodID, jmethodID> BuildDex(JNIEnv *env, jobject
             env, dex_file_class, dex_file_init,
             JNI_NewDirectByteBuffer(env, const_cast<void *>(image.ptr()), image.size()));
     } else {
-        void *target =
-            mmap(nullptr, image.size(), PROT_WRITE | PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-        memcpy(target, image.ptr(), image.size());
-        mprotect(target, image.size(), PROT_READ);
-        std::string err_msg;
-        const auto *dex = DexFile::OpenMemory(
-            reinterpret_cast<const uint8_t *>(target), image.size(),
-            generated_source_name.empty() ? "commplant" : generated_source_name, &err_msg);
-        if (!dex) {
-            LOGE("Failed to open memory dex: %s", err_msg.data());
-        } else {
-            java_dex_file = ScopedLocalRef(env, dex ? dex->ToJavaDexFile(env) : nullptr);
+        // Final protection is read-only. The GKI prctl write hits the pages with
+        // FOLL_FORCE, so we never mprotect them to RW.
+        void *target = prot_hide::Mmap(nullptr, image.size(), PROT_READ,
+                                       MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+        if (target == MAP_FAILED ||
+            !WriteProcessMemory(target, image.ptr(), image.size())) {
+            if (target != MAP_FAILED) munmap(target, image.size());
+            target = prot_hide::Mmap(nullptr, image.size(), PROT_WRITE | PROT_READ,
+                                     MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+            if (target != MAP_FAILED) {
+                memcpy(target, image.ptr(), image.size());
+                mprotect(target, image.size(), PROT_READ);
+            }
+        }
+        if (target != MAP_FAILED) {
+            std::string err_msg;
+            const auto *dex = DexFile::OpenMemory(
+                reinterpret_cast<const uint8_t *>(target), image.size(),
+                generated_source_name.empty() ? "commplant" : generated_source_name, &err_msg);
+            if (!dex) {
+                LOGE("Failed to open memory dex: %s", err_msg.data());
+            } else {
+                java_dex_file = ScopedLocalRef(env, dex ? dex->ToJavaDexFile(env) : nullptr);
+            }
         }
     }
 
@@ -463,6 +488,9 @@ std::tuple<jclass, jfieldID, jmethodID, jmethodID> BuildDex(JNIEnv *env, jobject
                 JNI_CallObjectMethod(env, java_dex_file, load_class,
                                      JNI_NewStringUTF(env, generated_class_name.data()), my_cl))
                 .release();
+        auto cookie =
+            JNI_GetObjectFieldOf(env, java_dex_file, "mCookie", "Ljava/lang/Object;");
+        if (cookie) DexFile::HideCookie(env, cookie.get());
     }
 
     if (target_class) {
@@ -500,6 +528,30 @@ const auto kPageMask = static_cast<uintptr_t>(kPageSize - 1);
 SharedHashSet<void *> mmap_regions;
 SharedHashSet<void *> dual_regions;
 
+// 0 unknown, 1 this GKI's prctl write is live, -1 missing or blocked.
+std::atomic<int> prctl_write_state{0};
+
+bool WriteProcessMemory(void *dest, const void *src, size_t len) {
+    if (len == 0) {
+        return true;
+    }
+    auto state = prctl_write_state.load(std::memory_order_acquire);
+    if (state < 0) [[unlikely]] {
+        return false;
+    }
+    iovec local{.iov_base = const_cast<void *>(src), .iov_len = len};
+    iovec remote{.iov_base = dest, .iov_len = len};
+    auto n = prctl(PR_WRITE_PROCESS, static_cast<unsigned long>(getpid()),
+                   reinterpret_cast<unsigned long>(&local),
+                   reinterpret_cast<unsigned long>(&remote), 0UL);
+    if (n == static_cast<int>(len)) [[likely]] {
+        prctl_write_state.store(1, std::memory_order_release);
+        return true;
+    }
+    prctl_write_state.store(-1, std::memory_order_release);
+    return false;
+}
+
 auto [ashmem_device_path, use_memfd] = [] -> std::pair<std::string, bool> {
     if (std::array<char, PROP_VALUE_MAX> prop_value;
         __system_property_get("ro.config.knox", prop_value.data()) > 0) {
@@ -535,17 +587,17 @@ auto [ashmem_device_path, use_memfd] = [] -> std::pair<std::string, bool> {
 
 std::pair<void *, void *> CreateDualMapping(int fd) {
     auto reserved_size = kPageSize * 2;
-    auto *reserved = static_cast<uint8_t *>(
-        mmap(nullptr, reserved_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+    auto *reserved = static_cast<uint8_t *>(prot_hide::Mmap(
+        nullptr, reserved_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
     if (reserved == MAP_FAILED) [[unlikely]] {
         PLOGE("mmap reserved memory");
         return {};
     }
 
-    auto *executable_memory =
-        mmap(reserved, kPageSize, PROT_READ | PROT_EXEC, MAP_SHARED | MAP_FIXED, fd, 0);
-    auto *writable_memory = mmap(reserved + kPageSize, kPageSize, PROT_READ | PROT_WRITE,
-                                 MAP_SHARED | MAP_FIXED, fd, 0);
+    auto *executable_memory = prot_hide::Mmap(reserved, kPageSize, PROT_READ | PROT_EXEC,
+                                              MAP_SHARED | MAP_FIXED, fd, 0);
+    auto *writable_memory = prot_hide::Mmap(reserved + kPageSize, kPageSize, PROT_READ | PROT_WRITE,
+                                            MAP_SHARED | MAP_FIXED, fd, 0);
     if (executable_memory == MAP_FAILED || writable_memory == MAP_FAILED) [[unlikely]] {
         PLOGE("mmap dual mapping");
         munmap(reserved, reserved_size);
@@ -618,8 +670,8 @@ void *AllocateMemory() {
         ashmem_device_path = {};
     }
 
-    auto *memory = mmap(nullptr, kPageSize, PROT_READ | PROT_WRITE | PROT_EXEC,
-                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    auto *memory = prot_hide::Mmap(nullptr, kPageSize, PROT_READ | PROT_WRITE | PROT_EXEC,
+                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (memory == MAP_FAILED) [[unlikely]] {
         PLOGE("mmap trampoline");
         return nullptr;
@@ -672,10 +724,12 @@ void *GenerateTrampolineFor(art::ArtMethod *hook) {
         break;
     }
     auto *address_ptr = reinterpret_cast<char *>(address);
-    if (dual_regions.contains(__builtin_align_down(address_ptr, kPageSize))) [[likely]] {
-        std::memcpy(address_ptr + kPageSize, data.data(), data.size());
-    } else {
-        std::memcpy(address_ptr, data.data(), data.size());
+    if (!WriteProcessMemory(address_ptr, data.data(), data.size())) {
+        if (dual_regions.contains(__builtin_align_down(address_ptr, kPageSize))) [[likely]] {
+            std::memcpy(address_ptr + kPageSize, data.data(), data.size());
+        } else {
+            std::memcpy(address_ptr, data.data(), data.size());
+        }
     }
 
     __builtin___clear_cache(address_ptr, reinterpret_cast<char *>(address + data.size()));
@@ -1002,7 +1056,38 @@ using ::commplant::IsHooked;
 [[maybe_unused]] bool MakeDexFileTrusted(JNIEnv *env, jobject cookie) {
     JavaDebuggableGuard guard;
     if (!cookie) return false;
+    DexFile::HideCookie(env, cookie);
     return DexFile::SetTrusted(env, cookie);
+}
+
+[[maybe_unused]] void *MmapHidden(void *addr, size_t length, int prot, int flags, int fd,
+                                  long offset) {
+    return prot_hide::Mmap(addr, length, prot, flags, fd, static_cast<off_t>(offset));
+}
+
+[[maybe_unused]] bool HideDexFile(JNIEnv *env, jobject cookie) {
+    return DexFile::HideCookie(env, cookie);
+}
+
+[[maybe_unused]] bool HideClassLoaderDex(JNIEnv *env, jobject class_loader) {
+    if (!class_loader) return false;
+    auto path_list = JNI_GetObjectFieldOf(env, class_loader, "pathList",
+                                          "Ldalvik/system/DexPathList;");
+    if (!path_list) return false;
+    auto elements = JNI_Cast<jobjectArray>(JNI_GetObjectFieldOf(
+        env, path_list, "dexElements", "[Ldalvik/system/DexPathList$Element;"));
+    if (!elements) return false;
+    bool any = false;
+    for (auto &element : elements) {
+        if (!element.get()) continue;
+        auto java_dex_file =
+            JNI_GetObjectFieldOf(env, element, "dexFile", "Ldalvik/system/DexFile;");
+        if (!java_dex_file) continue;
+        auto cookie =
+            JNI_GetObjectFieldOf(env, java_dex_file, "mCookie", "Ljava/lang/Object;");
+        if (cookie) any |= DexFile::HideCookie(env, cookie.get());
+    }
+    return any;
 }
 }
 }  // namespace v2

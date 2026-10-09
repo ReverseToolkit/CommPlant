@@ -14,4 +14,7 @@ export namespace commplant::inline v2{
     using commplant::v2::GetNativeFunction;
     using commplant::v2::MakeClassInheritable;
     using commplant::v2::MakeDexFileTrusted;
+    using commplant::v2::MmapHidden;
+    using commplant::v2::HideDexFile;
+    using commplant::v2::HideClassLoaderDex;
 }
